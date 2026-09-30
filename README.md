@@ -207,10 +207,7 @@ neonatal-respiratory-control-simulink/
 │
 ├── docs/
 │   ├── report.pdf                      # Compiled project report
-│   ├── presentation.pdf                # Presentation slides
-│   ├── presentation.pptx               # PowerPoint source
-│   ├── tehrani_reference_paper.pdf     # Reference literature
-│   ├── report_latex/                   # XeLaTeX source code
+│   ├── tehrani_reference_paper.pdf     # Reference literature            
 │   └── images/                         # Side-by-side verification figures
 │       ├── mod1.png
 │       ├── mod2.png
