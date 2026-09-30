@@ -6,18 +6,21 @@
 
 A complete **MATLAB / Simulink** re-implementation, verification, and physiological validation of **Dr. Fleur T. Tehrani's** closed-loop mathematical model for the respiratory control system in newborn infants. 
 
-This repository models the nonlinear chemical feedback, gas-exchange kinetics in vital tissues, and dynamic neural drive across baseline resting state, hypoxia, and hypercapnia conditions.
+This repository models nonlinear chemical feedback, tissue gas-exchange kinetics, and dynamic neural drive across resting state, hypoxia, and hypercapnia conditions.
 
 ---
 
 ## 📑 Table of Contents
 - [Project Overview](#-project-overview)
-- [System Architecture](#-system-architecture)
-- [Mathematical Modeling & Governing Equations](#-mathematical-modeling--governing-equations)
-- [Physiological Test Scenarios & Results](#-physiological-test-scenarios--results)
+- [System Architecture Comparison](#-system-architecture-comparison)
+- [Mathematical Modeling](#-mathematical-modeling)
+- [Side-by-Side Physiological Validation](#-side-by-side-physiological-validation)
+  - [1. Resting State Airflow & Blood Gases](#1-resting-state-airflow--blood-gases)
+  - [2. Hypoxia Challenge (15% & 12% O2)](#2-hypoxia-challenge-15--12-o2)
+  - [3. Hypercapnia & Wash-out Recovery (5% CO2)](#3-hypercapnia--wash-out-recovery-5-co2)
 - [Validation & Steady-State Results](#-validation--steady-state-results)
 - [Repository Structure](#-repository-structure)
-- [Getting Started & How to Run](#-getting-started--how-to-run)
+- [How to Run](#-how-to-run)
 - [References](#-references)
 
 ---
@@ -26,141 +29,171 @@ This repository models the nonlinear chemical feedback, gas-exchange kinetics in
 
 Biological control mechanisms feature complex inter-organ delays, nonlinear feedback gains, and time-varying respiratory demands. This project models the complete closed-loop neonatal respiratory control loop:
 
-1. **Reproduction of Dr. Tehrani's Reference Model:** Mapping continuous differential mass-balance equations and discrete control algorithms into an integrated Simulink model.
+1. **Reproduction of Dr. Tehrani's Reference Model:** Mapping continuous differential mass-balance equations and discrete control algorithms into an integrated Simulink framework.
 2. **State-Variable Stabilization:** Resolving blood gas partial pressures ($P_{amO_2}, P_{amCO_2}, P_{cCO_2}$) and ventilation parameters ($V_A, V_D, V_E, f$) until reaching steady-state ($t = 8\text{ minutes}$).
 3. **Stress Testing Under Physiological Disorders:** Evaluating compensation responses against acute Hypoxia ($O_2$ drop) and Hypercapnia ($CO_2$ inhalation), alongside tuning the work-minimization weighting parameter ($\mu$).
 
 ---
 
-## 🏛 System Architecture
+## 🏛 System Architecture Comparison
 
-The overall closed-loop architecture is decoupled into two interacting blocks:
+The closed-loop architecture is decoupled into a discrete neural controller (brainstem) and continuous metabolic plant compartments:
 
-```
-                            ┌───────────────────────────────────┐
-                            │    Brainstem Neural Controller    │
-                            │       (Discrete Controller)       │
-                            └─────────────────┬─────────────────┘
-                                              │ Flow Demand (dv/dt)
-                                              ▼
-  ┌───────────────────────────────────────────────────────────────────────────────────┐
-  │                                  Plant Subsystem                                  │
-  │                                                                                   │
-  │     ┌─────────────┐   Arterial Blood   ┌─────────────┐   Venous Return            │
-  │     │    Lungs    ├───────────────────►│ Body Tissue ├──────────────────┐          │
-  │     └──────┬──────┘                    └─────────────┘                  │          │
-  │            │                                                            ▼          │
-  │            │  Arterial Blood           ┌─────────────┐  Venous  ┌───────────────┐ │
-  │            └──────────────────────────►│Brain Tissue ├─────────►│  CSF Chamber  │ │
-  │                                        └─────────────┘          └───────┬───────┘ │
-  └───────────────────────────────────────────────┬─────────────────────────┼─────────┘
-                                                  │                         │
-                               Peripheral Drives  │      Central Drive      │
-                           (PamO2, PamCO2 feedback)      (PcCO2 feedback)   │
-                                                  ▼                         ▼
-                                       To Brainstem Controller
-```
+<table>
+  <tr>
+    <th width="50%" align="center">Reference Paper Conceptual Model</th>
+    <th width="50%" align="center">Implemented Simulink Model</th>
+  </tr>
+  <tr>
+    <td><img src="docs/images/mod1.png" alt="Reference Model Diagram" width="100%"/></td>
+    <td><img src="docs/images/mod2.png" alt="Simulink Implemented Model" width="100%"/></td>
+  </tr>
+</table>
 
 ### 1. Brainstem Controller Subsystem (Discrete Controller)
-To maximize numerical solver stability and handle discrete-time variables, five primary regulatory modules are integrated into a single high-performance subsystem:
-* **Mean Value Detector:** Filters instantaneous oscillating pressures to extract running mean metabolic signals.
-* **Clock Pulse Generator & Signal Generator:** Generates the physiological pacing rhythm and breathing profiles ($dv/dt$).
-* **Frequency Optimizer:** Dynamically tunes respiratory rate ($f$) by minimizing the work expenditure of breathing based on the optimization factor $\mu$.
-* **Ventilation Controller:** Modulates tidal volume ($V_T$) and minute ventilation ($V_E$) driven by central and peripheral chemical errors.
+Integrates five regulatory modules into a unified discrete-time block for maximum solver stability:
+* **Mean Value Detector:** Filters instantaneous oscillating pressures to extract running mean metabolic indicators.
+* **Clock Pulse & Signal Generator:** Generates breathing pacing profiles ($dv/dt$).
+* **Frequency Optimizer:** Tunes respiratory rate ($f$) to minimize mechanical work expenditure based on weighting factor $\mu$.
+* **Ventilation Controller:** Adjusts tidal volume ($V_T$) and minute ventilation ($V_E$) driven by chemical error signals.
 
 ### 2. Plant Subsystem (Gas Exchange & Circulation Dynamics)
-Implemented via embedded MATLAB functions interconnected with numerical integrators:
-* **Lungs:** Transports external airflow into alveolar spaces, executing gas exchange with pulmonary capillary blood.
-* **Body Tissue:** Represents system organs consuming $O_2$ and dumping $CO_2$ into systemic venous circulation.
-* **Brain Tissue:** Models metabolic cerebral kinetics and transfers venous blood toward cerebrospinal fluid structures.
-* **Cerebrospinal Fluid (CSF):** Computes $P_{cCO_2}$, acting as the primary feedback stimulator for central chemoreceptors.
+Realized through custom MATLAB function blocks driving numerical integrators:
+* **Lungs:** Facilitates gas exchange between inspired air and pulmonary blood flow.
+* **Body Tissue:** Consumes $O_2$ and produces metabolic $CO_2$.
+* **Brain Tissue & CSF:** Interacts chemically with cerebral blood flow and produces central feedback ($P_{cCO_2}$).
 
 ---
 
-## 📐 Mathematical Modeling & Governing Equations
+## 📐 Mathematical Modeling
 
-Dynamic concentrations are governed by mass-balance differential equations. As an example, the governing equations for the **Body Tissue** compartment are formulated as:
+The dynamic mass balance for body tissue gas concentration is expressed as:
 
 $$\frac{dC_{TCO_2}}{dt} = \frac{C_{amCO_2} \cdot Q_T + MR_{TCO_2} - C_{VTCO_2} \cdot Q_T}{S_T}$$
 
 $$\frac{dC_{TO_2}}{dt} = \frac{C_{amO_2} \cdot Q_T - MR_{TO_2} - C_{VTO_2} \cdot Q_T}{S_T}$$
 
-Where:
-* $Q_T = 9.8 \times 10^{-3} \text{ l/s}$: Total cardiac blood flow rate.
-* $MR_{TCO_2} = 1.625 \times 10^{-4} \text{ l/s}$: Metabolic rate of $CO_2$ generation in body tissues.
-* $MR_{TO_2} = 1.902 \times 10^{-4} \text{ l/s}$: Metabolic rate of $O_2$ consumption in body tissues.
-* $S_T = 0.9 \text{ l}$: Effective storage volume factor for tissue compartments.
-* $C_{am}$ and $C_{VT}$: Mixed arterial and venous gas concentrations, respectively.
-
----
-
-## 📊 Physiological Test Scenarios & Results
-
-### 1. Resting Conditions ($F_{I_{O_2}} = 21\%$, $F_{I_{CO_2}} = 0\%$)
-The system demonstrates natural respiratory pacing with peak airflow amplitudes around $0.04 \text{ l/s}$. Arterial partial pressures settle stably at $P_{amO_2} \approx 78.0\text{ mmHg}$ and $P_{amCO_2} \approx 38.8\text{ mmHg}$.
+Where $Q_T = 9.8 \times 10^{-3}\ \text{l/s}$, $MR_{TCO_2} = 1.625 \times 10^{-4}\ \text{l/s}$, $MR_{TO_2} = 1.902 \times 10^{-4}\ \text{l/s}$, and $S_T = 0.9\ \text{l}$.
 
 <p align="center">
-  <img src="docs/images/rdvdt2.png" alt="Resting Airflow" width="48%"/>
-  <img src="docs/images/rp1.png" alt="Resting Gas Pressures" width="48%"/>
+  <img src="docs/images/bt.png" alt="Body Tissue Block Implementation" width="650"/>
   <br>
-  <em>Figure 1: Resting-state airflow oscillation (left) and stabilization trajectories of arterial partial pressures (right).</em>
+  <em>Simulink block implementation of the Body Tissue differential mass-balance subsystem.</em>
 </p>
 
 ---
 
-### 2. Hypoxia Conditions ($F_{I_{O_2}} = 15\%$ & $12\%$)
-Under ambient oxygen deprivation, the brainstem issues hyperventilation commands to compensate for arterial desaturation. 
-* As $F_{I_{O_2}}$ falls to $12\%$, minute ventilation ($V_E$) ramps up from $0.589\text{ l/s}$ to $0.940\text{ l/s}$.
-* **Role of parameter $\mu$:** Adjusting the mechanical breathing work penalty $\mu$ (from $1.0$ down to $0.5$) demonstrates the trade-off between chemical error tolerance and breathing workload.
+## 📊 Side-by-Side Physiological Validation
+
+### 1. Resting State Airflow & Blood Gases
+Under normal baseline conditions ($F_{I_{O_2}} = 21\%, F_{I_{CO_2}} = 0\%$), the simulator tracks reference oscillating airflow patterns with peak amplitudes near $0.04\text{ l/s}$.
+
+<table>
+  <tr>
+    <th width="50%" align="center">Reference Airflow Waveform</th>
+    <th width="50%" align="center">Simulink Airflow Waveform</th>
+  </tr>
+  <tr>
+    <td><img src="docs/images/image_3b21cc.png" alt="Reference Airflow" width="100%"/></td>
+    <td><img src="docs/images/rdvdt2.png" alt="Simulated Airflow" width="100%"/></td>
+  </tr>
+</table>
 
 <p align="center">
-  <img src="docs/images/o2p15.png" alt="Hypoxia 15% Response" width="48%"/>
-  <img src="docs/images/o2dvdt1.png" alt="Hypoxia Airflow" width="48%"/>
+  <img src="docs/images/rp1.png" alt="Resting Gas Pressures Trajectory" width="450"/>
   <br>
-  <em>Figure 2: Dynamic arterial response to acute hypoxia (left) and increased respiratory airflow amplitude reflecting hyperventilation (right).</em>
-</p>
-
-<p align="center">
-  <img src="docs/images/o2p12_8.png" alt="Hypoxia 12% mu=0.8" width="48%"/>
-  <img src="docs/images/o2p12_5.png" alt="Hypoxia 12% mu=0.5" width="48%"/>
-  <br>
-  <em>Figure 3: Influence of work weighting coefficient mu on system sensitivity during 12% hypoxia (Left: mu=0.8, Right: mu=0.5).</em>
+  <em>Stabilization trajectories of arterial partial pressures toward resting equilibrium.</em>
 </p>
 
 ---
 
-### 3. Hypercapnia & Recovery Dynamics ($F_{I_{CO_2}} = 5\%$)
-A time-varying challenge where $5\%\ CO_2$ was applied between $t = 0\text{s}$ and $t = 500\text{s}$, followed by ambient recovery:
-* **Stimulation Phase ($0 - 500\text{s}$):** Inhaled $CO_2$ triggers deep, rapid breathing. Elevated ventilation increases $P_{amO_2}$ past $90\text{ mmHg}$, while arterial $P_{amCO_2}$ rises gently to approximately $45\text{ mmHg}$.
-* **Recovery Phase ($t > 500\text{s}$):** Removing external $CO_2$ causes rapid gas wash-out, producing an immediate drop in $P_{amCO_2}$ accompanied by minor damped oscillations before resetting to baseline.
+### 2. Hypoxia Challenge (15% & 12% O2)
+
+#### 15% Hypoxia Test
+A step drop in ambient $O_2$ activates the neural drive, resulting in hyperventilation to restore arterial oxygen levels:
+
+<table>
+  <tr>
+    <th width="50%" align="center">Reference Trajectory (15% Hypoxia)</th>
+    <th width="50%" align="center">Simulink Output (15% Hypoxia, μ = 0.5)</th>
+  </tr>
+  <tr>
+    <td><img src="docs/images/hyporg.png" alt="Reference Hypoxia 15%" width="100%"/></td>
+    <td><img src="docs/images/o2p15.png" alt="Simulated Hypoxia 15%" width="100%"/></td>
+  </tr>
+</table>
+
+#### 12% Hypoxia & Influence of Weighting Parameter $\mu$
+Adjusting $\mu$ demonstrates the trade-off between breathing mechanical work and chemical regulation error:
 
 <p align="center">
-  <img src="docs/images/co2p5_8.png" alt="Hypercapnia Response and Recovery" width="600"/>
+  <img src="docs/images/hyporg2.png" alt="Reference 12% Hypoxia Trajectory" width="600"/>
   <br>
-  <em>Figure 4: Dynamic dual-phase response and wash-out recovery trajectory under 5% CO2 hypercapnia challenge (mu = 0.8).</em>
+  <em>Reference paper trajectory under 12% hypoxia.</em>
 </p>
+
+<table>
+  <tr>
+    <th width="50%" align="center">Simulink Model (μ = 0.8)</th>
+    <th width="50%" align="center">Simulink Model (μ = 0.5)</th>
+  </tr>
+  <tr>
+    <td><img src="docs/images/o2p12_8.png" alt="Simulated 12% Hypoxia mu=0.8" width="100%"/></td>
+    <td><img src="docs/images/o2p12_5.png" alt="Simulated 12% Hypoxia mu=0.5" width="100%"/></td>
+  </tr>
+</table>
+
+<p align="center">
+  <img src="docs/images/o2dvdt1.png" alt="Hypoxia Airflow Adaptation" width="550"/>
+  <br>
+  <em>Compensatory increase in respiratory airflow amplitude during acute hypoxia.</em>
+</p>
+
+---
+
+### 3. Hypercapnia & Wash-out Recovery (5% CO2)
+A time-varying experiment where $5\%\ CO_2$ was delivered from $t = 0\text{ s}$ to $t = 500\text{ s}$, followed by an atmospheric wash-out phase:
+
+<table>
+  <tr>
+    <th width="50%" align="center">Reference Hypercapnia & Recovery</th>
+    <th width="50%" align="center">Simulink Hypercapnia & Recovery (μ = 0.8)</th>
+  </tr>
+  <tr>
+    <td><img src="docs/images/caporg.png" alt="Reference Hypercapnia" width="100%"/></td>
+    <td><img src="docs/images/co2p5_8.png" alt="Simulated Hypercapnia" width="100%"/></td>
+  </tr>
+</table>
 
 ---
 
 ## 📈 Validation & Steady-State Results
 
-Simulations were integrated for $8\text{ minutes}$ using variable-step stiff ODE solvers (`ode45` / `ode15s`) to extract true steady-state values:
+Simulations were integrated for $8\text{ minutes}$ using variable-step stiff ODE solvers (`ode45` / `ode15s`) to extract steady-state values.
+
+<p align="center">
+  <img src="docs/images/tab.png" alt="Reference Table 1" width="700"/>
+  <br>
+  <em>Steady-state benchmark values reported in Dr. Tehrani's paper (Table 1).</em>
+</p>
+
+### Simulation Results Table
 
 | Physiological State | $F_{I_{O_2}}$ | $F_{I_{CO_2}}$ | $\mu$ | $P_{amO_2}$ (mmHg) | $P_{amCO_2}$ (mmHg) | $P_{cCO_2}$ (mmHg) | $V_A$ (l/s) | $V_D$ (l/s) | $V_E$ (l/s) | $f$ (bpm) |
-|:---:|:---:|:---:|:---:|:---:|:---:|:---:|:---:|:---:|:---:|
-| **Resting Condition** | 0.21 | 0.00 | 1.0 | 78.0 | 38.8 | 43.7 | 0.478 | $3.63 \times 10^{-3}$ | 0.589 | 30.5 |
-| **Hypoxia** | 0.15 | 0.00 | 1.0 | 51.7 | 36.0 | 41.8 | 0.560 | $3.86 \times 10^{-3}$ | 0.684 | 32.2 |
-| | 0.15 | 0.00 | 0.8 | 50.9 | 36.5 | 42.1 | 0.563 | $3.87 \times 10^{-3}$ | 0.688 | 32.3 |
-| | 0.15 | 0.00 | 0.5 | 49.7 | 37.2 | 42.6 | 0.542 | $3.81 \times 10^{-3}$ | 0.663 | 31.9 |
-| | 0.12 | 0.00 | 1.0 | 40.6 | 31.9 | 38.8 | 0.780 | $4.49 \times 10^{-3}$ | 0.940 | 35.7 |
-| | 0.12 | 0.00 | 0.8 | 39.5 | 32.7 | 39.5 | 0.732 | $4.35 \times 10^{-3}$ | 0.884 | 35.0 |
-| | 0.12 | 0.00 | 0.5 | 37.4 | 34.4 | 40.7 | 0.666 | $4.17 \times 10^{-3}$ | 0.808 | 34.1 |
-| **Hypercapnia** | 0.21 | 0.03 | 1.0 | 88.5 | 41.3 | 45.5 | 0.913 | $4.87 \times 10^{-3}$ | 1.095 | 37.3 |
-| | 0.21 | 0.03 | 0.8 | 88.6 | 41.3 | 45.5 | 0.924 | $4.90 \times 10^{-3}$ | 1.107 | 37.4 |
-| | 0.21 | 0.03 | 0.5 | 88.6 | 41.3 | 45.6 | 0.921 | $4.89 \times 10^{-3}$ | 1.104 | 37.3 |
-| | 0.21 | 0.05 | 1.0 | 91.9 | 45.0 | 48.5 | 1.604 | $6.82 \times 10^{-3}$ | 1.891 | 42.2 |
-| | 0.21 | 0.05 | 0.8 | 92.2 | 45.2 | 48.5 | 1.632 | $6.90 \times 10^{-3}$ | 1.924 | 42.3 |
-| | 0.21 | 0.05 | 0.5 | 92.5 | 45.3 | 48.6 | 1.666 | $6.99 \times 10^{-3}$ | 1.963 | 42.5 |
+| :--- | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: |
+| **Resting Condition** | 0.21 | 0.00 | 1.0 | 78.0 | 38.8 | 43.7 | 0.478 | 0.0036 | 0.589 | 30.5 |
+| **Hypoxia** | 0.15 | 0.00 | 1.0 | 51.7 | 36.0 | 41.8 | 0.560 | 0.0038 | 0.684 | 32.2 |
+| | 0.15 | 0.00 | 0.8 | 50.9 | 36.5 | 42.1 | 0.563 | 0.0038 | 0.688 | 32.3 |
+| | 0.15 | 0.00 | 0.5 | 49.7 | 37.2 | 42.6 | 0.542 | 0.0038 | 0.663 | 31.9 |
+| | 0.12 | 0.00 | 1.0 | 40.6 | 31.9 | 38.8 | 0.780 | 0.0045 | 0.940 | 35.7 |
+| | 0.12 | 0.00 | 0.8 | 39.5 | 32.7 | 39.5 | 0.732 | 0.0043 | 0.884 | 35.0 |
+| | 0.12 | 0.00 | 0.5 | 37.4 | 34.4 | 40.7 | 0.666 | 0.0041 | 0.808 | 34.1 |
+| **Hypercapnia** | 0.21 | 0.03 | 1.0 | 88.5 | 41.3 | 45.5 | 0.913 | 0.0048 | 1.095 | 37.3 |
+| | 0.21 | 0.03 | 0.8 | 88.6 | 41.3 | 45.5 | 0.924 | 0.0049 | 1.107 | 37.4 |
+| | 0.21 | 0.03 | 0.5 | 88.6 | 41.3 | 45.6 | 0.921 | 0.0048 | 1.104 | 37.3 |
+| | 0.21 | 0.05 | 1.0 | 91.9 | 45.0 | 48.5 | 1.604 | 0.0068 | 1.891 | 42.2 |
+| | 0.21 | 0.05 | 0.8 | 92.2 | 45.2 | 48.5 | 1.632 | 0.0069 | 1.924 | 42.3 |
+| | 0.21 | 0.05 | 0.5 | 92.5 | 45.3 | 48.6 | 1.666 | 0.0069 | 1.963 | 42.5 |
 
 ---
 
@@ -170,7 +203,7 @@ Simulations were integrated for $8\text{ minutes}$ using variable-step stiff ODE
 neonatal-respiratory-control-simulink/
 │
 ├── simulink/
-│   └── infant_respiratory_model.slx   # Complete standalone Simulink closed-loop model
+│   └── infant_respiratory_model.slx   # Standalone Simulink closed-loop model
 │
 ├── docs/
 │   ├── report.pdf                      # Compiled project report
@@ -178,13 +211,21 @@ neonatal-respiratory-control-simulink/
 │   ├── presentation.pptx               # PowerPoint source
 │   ├── tehrani_reference_paper.pdf     # Reference literature
 │   ├── report_latex/                   # XeLaTeX source code
-│   └── images/                         # Simulation output graphs
+│   └── images/                         # Side-by-side verification figures
+│       ├── mod1.png
+│       ├── mod2.png
+│       ├── bt.png
+│       ├── tab.png
+│       ├── image_3b21cc.png
 │       ├── rdvdt2.png
 │       ├── rp1.png
+│       ├── hyporg.png
 │       ├── o2p15.png
-│       ├── o2dvdt1.png
+│       ├── hyporg2.png
 │       ├── o2p12_8.png
 │       ├── o2p12_5.png
+│       ├── o2dvdt1.png
+│       ├── caporg.png
 │       └── co2p5_8.png
 │
 ├── .gitignore
@@ -194,27 +235,25 @@ neonatal-respiratory-control-simulink/
 
 ---
 
-## ⚡ Getting Started & How to Run
+## ⚡ How to Run
 
-### Prerequisites
-* **MATLAB & Simulink** (R2021a or newer recommended).
-
-### Running the Model
-All physiological constants, initial state conditions, and mass-balance equations are embedded directly inside the model's subsystem masks and MATLAB function blocks:
-
-1. Clone or download this repository.
+1. Clone the repository:
+   ```bash
+   git clone [https://github.com/YourUsername/neonatal-respiratory-control-simulink.git](https://github.com/YourUsername/neonatal-respiratory-control-simulink.git)
+   cd neonatal-respiratory-control-simulink
+   ```
 2. Open MATLAB and navigate to the project directory.
-3. Open the model file in Simulink:
+3. Open the model:
    ```matlab
    open_system('simulink/infant_respiratory_model.slx');
    ```
-4. Click the **Run** button on the Simulink toolbar (or run `sim('simulink/infant_respiratory_model.slx')` in the command window).
-5. Open the Scope blocks to view real-time blood gas partial pressures and airflow waveforms.
+4. Run the simulation (`Ctrl + T` or click **Run**).
+5. Double-click the Scope blocks to inspect airflow oscillations and gas partial pressure trajectories.
 
 ---
 
 ## 📖 References
-* **Reference Paper:** Tehrani, Fleur T. *"A mathematical model of the respiratory control system in the newborn infant."*
+* **Reference Article:** Tehrani, Fleur T. *"A mathematical model of the respiratory control system in the newborn infant."*
 * **Course:** Biological System Modeling, Department of Electrical Engineering, Sharif University of Technology.
 
 ---
